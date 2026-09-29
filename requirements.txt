@@ -1,0 +1,14 @@
+# torch/torchvision 은 CUDA 버전에 맞게 먼저 설치:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+ultralytics
+transformers
+fastapi
+uvicorn[standard]
+python-multipart
+pyyaml
+pillow
+numpy
+opencv-python-headless
+# 테스트
+pytest
+httpx

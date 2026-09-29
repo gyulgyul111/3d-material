@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>랙 재고 카운팅</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Crect x=%221%22 y=%222%22 width=%2214%22 height=%2212%22 rx=%222%22 fill=%22%232a78d6%22/%3E%3Crect x=%224%22 y=%225%22 width=%228%22 height=%224%22 fill=%22white%22/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/style.css">
+<script type="importmap">{ "imports": { "three": "/static/vendor/three.module.min.js" } }</script>
+</head>
+<body>
+<header class="top">
+  <h1>랙 재고 카운팅</h1>
+  <nav class="tabs">
+    <a href="#analyze" data-tab="analyze">재고 분석</a>
+    <a href="#racks" data-tab="racks"><span class="step">1</span>랙·ROI 설정</a>
+    <a href="#classes" data-tab="classes"><span class="step">2</span>클래스(부자재)</a>
+    <a href="#label" data-tab="label"><span class="step">3</span>라벨링</a>
+    <a href="#train" data-tab="train"><span class="step">4</span>학습</a>
+    <a href="#depth" data-tab="depth">깊이 추정·3D</a>
+  </nav>
+</header>
+
+<!-- 재고 분석 -->
+<section class="tab" id="tab-analyze">
+  <div class="toolbar">
+    <select id="an-rack"></select>
+    <input type="file" id="an-file" accept="image/*" capture="environment">
+    <button class="primary" id="an-run" disabled>분석</button>
+    <button id="an-to-dataset" disabled title="이 사진을 라벨링 데이터에 추가해 다음 학습에 사용">라벨링 데이터에 추가</button>
+    <span class="muted" id="an-status"></span>
+    <span class="muted" id="an-model" style="margin-left:auto"></span>
+  </div>
+  <div class="note" id="an-roi-warn" hidden>이 랙은 ROI(네 모서리)가 설정되지 않았습니다. [랙·ROI 설정] 탭에서 먼저 설정하세요.</div>
+  <div class="grid2">
+    <div class="panel">
+      <h2>검출 결과 <span class="muted">(ROI 보정 이미지)</span></h2>
+      <div id="an-imgbox"><div class="placeholder">랙을 선택하고 사진을 올린 뒤 [분석]을 누르세요.</div></div>
+      <div class="legend">
+        <span>라벨 박스 색 = 클래스 색 (클래스 xN = 안쪽에 가려진 박스 포함 수량)</span>
+        <span><i style="background:#94a3b8"></i>배경(랙 뒤쪽) 제외</span>
+      </div>
+      <div class="muted" id="an-front"></div>
+    </div>
+    <div class="stack">
+      <div class="panel">
+        <div class="kpis">
+          <div class="kpi"><div class="v" id="k-boxes">-</div><div class="k">총 박스</div></div>
+          <div class="kpi"><div class="v" id="k-labels">-</div><div class="k">검출 라벨</div></div>
+          <div class="kpi alert"><div class="v" id="k-need">-</div><div class="k">구매 필요 부자재</div></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="row"><h2>구매 필요 수량</h2><button id="an-csv" disabled>CSV 다운로드</button></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>부자재</th><th class="num">현재고</th><th class="num">적정</th><th class="num">목표</th><th>판정</th><th class="num">구매(박스)</th><th class="num">구매(EA)</th></tr></thead>
+          <tbody id="an-purchase"><tr><td colspan="7" class="muted">-</td></tr></tbody>
+        </table></div>
+      </div>
+      <div class="panel">
+        <h2>부자재별 수량</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>부자재</th><th class="num">보이는 라벨</th><th class="num">추정 박스(가려진 것 포함)</th></tr></thead>
+          <tbody id="an-items"><tr><td colspan="3" class="muted">-</td></tr></tbody>
+        </table></div>
+      </div>
+      <div class="panel">
+        <details>
+          <summary><b>라벨별 상세 (깊이 추정)</b></summary>
+          <div class="table-wrap" style="margin-top:10px"><table>
+            <thead><tr><th>#</th><th>클래스</th><th class="num">신뢰도</th><th class="num">랙 앞면 대비(mm)</th><th class="num">수량</th><th>상태</th></tr></thead>
+            <tbody id="an-labels"></tbody>
+          </table></div>
+        </details>
+      </div>
+      <div class="panel">
+        <h2>최근 분석 이력</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>시각</th><th class="num">총 박스</th><th>구매 필요</th></tr></thead>
+          <tbody id="an-history"></tbody>
+        </table></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 1. 랙·ROI 설정 -->
+<section class="tab" id="tab-racks">
+  <div class="toolbar">
+    <select id="rk-select"></select>
+    <button id="rk-new">＋ 새 랙</button>
+    <button id="rk-delete" class="danger">랙 삭제</button>
+  </div>
+  <div class="grid-side" id="rk-editor">
+    <div class="stack">
+      <div class="panel">
+        <div class="row"><h2>랙 정보</h2><span class="badge need" id="rk-dirty" hidden>저장 안 됨</span></div>
+        <div class="fields">
+          <label class="field">랙 이름<input id="rk-name"></label>
+          <label class="field">랙 깊이(mm)<input id="rk-depth" type="number" min="1" step="10"></label>
+          <label class="field">랙 앞면 폭(mm)<input id="rk-w" type="number" min="1" step="10" placeholder="선택"></label>
+          <label class="field">랙 앞면 높이(mm)<input id="rk-h" type="number" min="1" step="10" placeholder="선택"></label>
+          <label class="field">카메라~랙 앞면(m)<input id="rk-cam" type="number" step="0.01" min="0" placeholder="선택 (권장)"></label>
+        </div>
+        <label class="field">기준 사진 (고정 카메라)<input type="file" id="rk-image" accept="image/*"></label>
+      </div>
+      <div class="panel">
+        <h2>ROI (랙 앞면 네 모서리)</h2>
+        <div class="toolbar" style="margin-bottom:8px">
+          <button id="rk-pick">네 모서리 다시 찍기</button>
+          <button id="rk-reset">사진 전체로 초기화</button>
+        </div>
+        <p class="help" id="rk-roi-status" style="margin:0"></p>
+      </div>
+      <div class="panel">
+        <h2>이 랙의 부자재</h2>
+        <div id="rk-classes" class="checks"></div>
+        <p class="help" style="margin:8px 0 0">체크한 부자재는 라벨이 하나도 안 보여도 재고 0으로 표시되어 구매 필요 여부를 판단합니다.</p>
+      </div>
+      <button class="primary" id="rk-save">랙 설정 저장</button>
+      <div class="panel">
+        <h2>분석 파라미터 (전체 공통)</h2>
+        <div class="fields">
+          <label class="field">검출 신뢰도 임계값<input id="st-conf" type="number" step="0.05" min="0.01" max="0.99"></label>
+          <label class="field">배경 제외 여유(mm)<input id="st-margin" type="number" step="10" min="0"></label>
+          <label class="field">깊이 허용오차(박스깊이 비율)<input id="st-tol" type="number" step="0.05" min="0" max="0.9"></label>
+          <label class="field">기본 박스 깊이(mm)<input id="st-box" type="number" step="10" min="1"></label>
+        </div>
+        <button id="rk-settings-save">파라미터 저장</button>
+      </div>
+    </div>
+    <div class="stack">
+      <div class="panel">
+        <div class="canvas-box short" id="rk-canvas"></div>
+        <p class="help" style="margin:8px 0 0">
+          <kbd>클릭×4</kbd>모서리 찍기(순서 무관) <kbd>점 드래그</kbd>미세조정(돋보기) <kbd>안쪽 드래그</kbd>전체 이동
+          <kbd>휠</kbd>확대 <kbd>우클릭 드래그</kbd>화면 이동 <kbd>더블클릭</kbd>화면 맞춤
+        </p>
+      </div>
+      <div class="panel">
+        <h2>보정 결과 미리보기 <span class="muted">— 라벨링·학습·추론에 이 이미지가 쓰입니다</span></h2>
+        <div id="rk-preview" class="preview-box"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 2. 클래스(부자재) -->
+<section class="tab" id="tab-classes">
+  <div class="panel">
+    <div class="row">
+      <h2>클래스(부자재) 관리 <span class="muted">— 라벨링 클래스 = 부자재, 재고 단위: 박스</span></h2>
+      <div><span class="badge need" id="cl-dirty" hidden>저장 안 됨</span>
+        <button id="cl-reload">되돌리기</button> <button id="cl-add">＋ 클래스 추가</button> <button class="primary" id="cl-save">저장</button></div>
+    </div>
+    <div class="note" id="cl-model" hidden>현재 검출 모델은 지금과 다른 클래스 목록으로 학습되었습니다. [학습] 탭에서 다시 학습해야 분석에 반영됩니다.</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>#</th><th>색상</th><th>클래스 이름</th><th>설명</th><th>적정재고</th><th>목표재고</th><th>발주단위</th><th>박스당 입수(EA)</th><th>박스 깊이(mm)</th><th class="num">라벨 박스</th><th></th></tr></thead>
+      <tbody id="cl-rows"></tbody>
+    </table></div>
+    <p class="help">
+      현재고가 <b>적정재고 이하</b>이면 <b>목표재고까지</b> 채울 수량을 <b>발주단위</b> 배수로 올림해서 구매필요수량으로 계산합니다.
+      적정재고와 목표재고가 모두 0이면 수량만 세고 구매 판단은 하지 않습니다.
+      <b>박스 깊이</b>는 라벨이 랙 앞면에서 얼마나 들어가 있는지로 안쪽에 가려진 박스 수를 추정할 때 씁니다.<br>
+      <b>#</b>은 라벨 파일의 클래스 번호입니다. 클래스를 <b>삭제</b>하면 그 클래스로 라벨링한 박스도 지워지고, 순서를 바꾸면 라벨 번호도 함께 바뀝니다.
+      이름을 바꾸거나 삭제·추가하면 검출 모델을 다시 학습해야 분석에 반영됩니다.
+    </p>
+  </div>
+</section>
+
+<!-- 3. 라벨링 -->
+<section class="tab" id="tab-label">
+  <div class="grid-label">
+    <div class="panel">
+      <label class="field">ROI를 적용할 랙<select id="lb-rack"></select></label>
+      <p class="warn-text muted" id="lb-no-roi" hidden>[랙·ROI 설정]에서 ROI를 먼저 설정해야 사진을 추가할 수 있습니다.</p>
+      <label class="field" style="margin-top:8px">사진 추가 (여러 장 선택 가능)<input type="file" id="lb-upload" accept="image/*" multiple></label>
+      <div class="row" style="margin:12px 0 0">
+        <select id="lb-filter">
+          <option value="all">전체</option>
+          <option value="unlabeled">미라벨</option>
+          <option value="labeled">라벨 완료</option>
+          <option value="roi">ROI 미적용·변경</option>
+        </select>
+        <span class="muted" id="lb-count"></span>
+      </div>
+      <button id="lb-roi-all" class="warn-btn" hidden style="width:100%;margin-top:8px"></button>
+      <ul class="img-list" id="lb-list"></ul>
+    </div>
+    <div class="stack">
+      <div class="panel">
+        <div class="row" style="margin-bottom:8px">
+          <div class="classes" id="lb-classes"></div>
+          <a href="#classes" class="btn-link">클래스 편집 (색상·추가·삭제)</a>
+        </div>
+        <div class="toolbar" style="margin:0">
+          <button id="lb-prev" title="A / ←">◀ 이전</button>
+          <button id="lb-next" title="D / →">다음 ▶</button>
+          <button id="lb-save" title="S / Ctrl+S">저장</button>
+          <button id="lb-predict" title="현재 학습된 모델로 박스를 미리 찾아줍니다">모델로 초벌 라벨</button>
+          <button id="lb-clear">박스 모두 지우기</button>
+          <button id="lb-del-img" class="danger">이미지 삭제</button>
+          <span class="muted" id="lb-info"></span>
+        </div>
+      </div>
+      <div class="note row" id="lb-roi-note" hidden style="margin:0"><span id="lb-roi-msg"></span><button id="lb-roi-apply" class="primary"></button></div>
+      <div class="canvas-box" id="lb-canvas"></div>
+      <p class="help" style="margin:0">
+        <kbd>드래그</kbd>박스 그리기 <kbd>1~9</kbd>클래스 선택/변경 <kbd>Del</kbd>선택 박스 삭제 <kbd>A</kbd><kbd>D</kbd>이전/다음(자동 저장)
+        <kbd>S</kbd>저장 <kbd>휠</kbd>확대 <kbd>우클릭 드래그</kbd>이동 <kbd>더블클릭</kbd>화면 맞춤 —
+        박스라벨 스티커 영역만 꼭 맞게 그리세요. 박스 없이 저장한 사진은 '라벨 없음' 사례로 학습됩니다.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- 4. 학습 -->
+<section class="tab" id="tab-train">
+  <div class="grid-side">
+    <div class="stack">
+      <div class="panel">
+        <h2>학습 데이터</h2>
+        <div class="kpis" id="tr-stats"></div>
+        <div class="table-wrap" style="margin-top:12px"><table>
+          <thead><tr><th>#</th><th>클래스</th><th class="num">박스</th></tr></thead>
+          <tbody id="tr-classes"></tbody>
+        </table></div>
+      </div>
+      <div class="panel">
+        <h2>현재 검출 모델</h2>
+        <div id="tr-model"></div>
+      </div>
+      <div class="panel">
+        <h2>학습 설정</h2>
+        <div class="note" id="tr-warn" hidden></div>
+        <div class="fields" id="tr-params">
+          <label class="field">기본 모델<select id="tr-base"></select></label>
+          <label class="field">Epochs<input id="tr-epochs" type="number" value="100" min="1" max="1000"></label>
+          <label class="field">이미지 크기<input id="tr-imgsz" type="number" value="960" step="32" min="320" max="1920"></label>
+          <label class="field">Batch<input id="tr-batch" type="number" value="4" min="1" max="64"></label>
+        </div>
+        <p class="help">GPU 메모리(4GB)가 부족하다는 오류가 나면 Batch나 이미지 크기를 줄이세요. 학습이 끝나면 새 모델이 분석에 바로 적용됩니다.</p>
+        <button class="primary" id="tr-start">학습 시작</button>
+        <button class="danger" id="tr-stop" disabled>중지</button>
+      </div>
+    </div>
+    <div class="stack">
+      <div class="panel">
+        <div class="row"><h2>진행 상황</h2><span class="badge" id="tr-state">대기</span></div>
+        <div class="progress"><div id="tr-progress"></div></div>
+        <div class="muted" id="tr-progress-text"></div>
+        <div class="latest" id="tr-latest"></div>
+        <div id="tr-chart"></div>
+      </div>
+      <div class="panel">
+        <h2>로그</h2>
+        <pre class="log" id="tr-log"></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 깊이 추정 · 3D -->
+<section class="tab" id="tab-depth">
+  <div class="toolbar">
+    <select id="dp-rack"></select>
+    <label class="check"><input type="radio" name="dp-src" value="ref" checked> 랙 기준 사진</label>
+    <label class="check"><input type="radio" name="dp-src" value="file"> 파일</label>
+    <input type="file" id="dp-file" accept="image/*">
+    <label class="check"><input type="checkbox" id="dp-rectify" checked> ROI 보정</label>
+    <button class="primary" id="dp-run">깊이 추정</button>
+    <span class="muted" id="dp-status"></span>
+  </div>
+  <div class="panel" id="dp-empty"><div class="placeholder">랙이나 사진을 선택하고 [깊이 추정]을 누르세요. Depth Anything V2(Metric) 모델로 픽셀마다 카메라로부터의 거리(m)를 추정합니다.</div></div>
+  <div class="grid2" id="dp-content" hidden>
+    <div class="panel">
+      <div class="row">
+        <h2>2D 깊이맵</h2>
+        <div class="seg" id="dp-layers">
+          <button data-layer="rgb">원본</button>
+          <button data-layer="depth">거리</button>
+          <button data-layer="recess">랙 앞면 기준</button>
+        </div>
+      </div>
+      <div class="imgwrap" id="dp-imgwrap">
+        <img id="dp-img" class="result-img" alt="깊이맵">
+        <div class="tip" id="dp-tip" hidden></div>
+      </div>
+      <div id="dp-bar" class="colorbar">
+        <div class="muted" id="dp-bar-title"></div>
+        <div class="ramp"></div>
+        <div class="row" style="margin:2px 0 0"><span class="muted" id="dp-bar-lo"></span><span class="muted" id="dp-bar-hi"></span></div>
+      </div>
+      <p class="help" id="dp-info"></p>
+    </div>
+    <div class="panel">
+      <div class="row"><h2>3D 재구성</h2><button id="dp-reset">시점 초기화</button></div>
+      <div class="fields compact">
+        <label class="field">표시<select id="dp-mode"><option value="mesh">메시(면)</option><option value="points">포인트</option></select></label>
+        <label class="field">색상<select id="dp-color"><option value="rgb">사진 색</option><option value="depth">거리 색</option></select></label>
+        <label class="field">카메라 시야각 <span id="dp-fov-v">60°</span><input id="dp-fov" type="range" min="30" max="110" value="60"></label>
+        <label class="field">점 크기<input id="dp-size" type="range" min="0.5" max="4" step="0.1" value="1.2"></label>
+      </div>
+      <label class="check" style="margin-bottom:8px"><input type="checkbox" id="dp-crop" checked> ROI 밖 제거</label>
+      <div class="canvas-box short" id="dp-3d"></div>
+      <p class="help" style="margin:8px 0 0"><kbd>드래그</kbd>회전 <kbd>우클릭 드래그</kbd>이동 <kbd>휠</kbd>확대 — 노란 선은 랙 앞면(ROI)입니다.
+        시야각은 촬영한 카메라에 맞추면 형태가 정확해집니다(스마트폰 기본 카메라는 대개 65~75°).</p>
+    </div>
+  </div>
+</section>
+
+<div class="toast" id="toast"></div>
+<script type="module" src="/static/js/main.js"></script>
+</body>
+</html>

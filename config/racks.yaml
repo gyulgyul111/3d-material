@@ -1,0 +1,18 @@
+# 웹 화면에서 저장된 설정입니다. 직접 수정해도 됩니다.
+settings: {detector_weights: models/box_label.pt, detector_conf: 0.35, depth_model: depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf,
+  background_margin_mm: 150, depth_tolerance_ratio: 0.3, default_box_depth_mm: 300,
+  rectified_width: 1280}
+racks:
+  RACK-A01:
+    name: A동 1번 랙
+    corners:
+    - [0.0809, 0.1688]
+    - [0.9317, 0.1994]
+    - [0.9275, 0.7601]
+    - [0.0683, 0.9289]
+    rack_depth_mm: 1000.0
+    camera_to_front_m: 1.8
+    classes: [box_label]
+classes:
+- {name: box_label, color: '#2a78d6', safety_stock: 0, target_stock: 0, order_lot: 1,
+  units_per_box: 1, box_depth_mm: 300.0, description: ''}

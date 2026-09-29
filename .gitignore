@@ -1,0 +1,17 @@
+# 가상환경 / 캐시
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 데이터와 학습 결과는 저장소에 올리지 않음 (각 PC에서 생성)
+# datasets: 라벨링 사진, 원본, 라벨 / data: 랙 기준 사진, 분석 이력
+# models: 학습된 검출 모델 / runs: 학습 로그, 기본 가중치 다운로드
+datasets/
+data/
+models/
+runs/
+*.pt
+
+# 설정 저장 중 임시 파일
+config/*.tmp
